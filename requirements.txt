@@ -1,0 +1,11 @@
+Flask
+pyTelegramBotAPI
+gunicorn
+google-cloud-functions
+google-cloud-pubsub	
+google-cloud-storage
+python-dotenv
+openpyxl
+vertexai
+pillow
+typing
