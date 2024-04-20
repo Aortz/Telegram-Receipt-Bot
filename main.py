@@ -29,7 +29,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 client = storage.Client()
 selected_file = None
 destination_bucket_name = "cloud_computing_excel_buckets"
-destination_file_name = "Duplicate Budget.xlsx"
+destination_file_name = "Budget.xlsx"
 
 @app.post("/")
 def index() -> Response:
@@ -70,11 +70,11 @@ def create_options_markup():
 # Handle all other messages
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def echo_message(message):
-    bot.reply_to(message, "Hi, I'm a chatbot powered by Gemini AI to help track your expenses. Please start by selecting a spreadsheet to track your expenses in!")
+    bot.reply_to(message, "Hi, I'm a chatbot powered by Gemini AI to help track your expenses. Please start by using /spreadsheet to select a spreadsheet to track your expenses in!")
 
-# @bot.message_handler(commands=['expense'])
-# def start_expense(message):
-#     bot.reply_to(message, "Please send me the receipt image. Make sure you already selected a spreadsheet or created one before this!!")
+@bot.message_handler(commands=['expense'])
+def start_expense(message):
+    bot.reply_to(message, "Please send me the receipt image. Make sure you already selected a spreadsheet or created one before this!!")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -89,7 +89,7 @@ def handle_query(call):
         source_bucket_name = "cloud_computing_excel_buckets"
         source_file_name = "Budget Template.xlsx"
         destination_bucket_name = "cloud_computing_excel_buckets"
-        destination_file_name = "Duplicate Budget.xlsx"
+        destination_file_name = "Budget.xlsx"
 
         # Get source bucket and blob
         source_bucket = client.bucket(source_bucket_name)
@@ -102,12 +102,12 @@ def handle_query(call):
         source_bucket.copy_blob(source_blob, destination_bucket, destination_file_name)
 
         # Send a response to the user
-        bot.send_message(call.message.chat.id, "Excel sheet copied successfully!")
+        bot.send_message(call.message.chat.id, "Excel sheet created successfully! Please send me the receipt image.")
 
     elif call.data == 'fetch_existing':
         bot.send_message(call.message.chat.id, "Fetching existing spreadsheets...")
         destination_bucket_name = "cloud_computing_excel_buckets"
-        destination_file_name = "Duplicate Budget.xlsx"
+        destination_file_name = "Budget.xlsx"
         bucket = client.bucket(destination_bucket_name)
         # List all spreadsheets in the bucket
         blobs = bucket.list_blobs()
@@ -119,7 +119,6 @@ def handle_query(call):
             if blob.name.endswith('.xlsx'):  # Filter for Excel files first
                 file_count += 1
                 if file_count > 1:  # Start adding buttons from the second file
-                    print(blob.name)
                     button = types.InlineKeyboardButton(blob.name, callback_data='select_' + blob.name)
                     markup.add(button)
         
@@ -143,39 +142,42 @@ def handle_query(call):
 
 @bot.message_handler(content_types=['photo'])
 def handle_image(message):
-    bot.send_message(message.chat.id, "This will take me 1 minute as I process your receipt. Go grab some coffee in the meantime")
-    file_info = bot.get_file(message.photo[-1].file_id)
-    receipt = load_image_from_url('https://api.telegram.org/file/bot{0}/{1}'.format(BOT_TOKEN, file_info.file_path))
-    expense_info = generate_text(message.chat.id, os.environ.get('GCP_PROJECT_ID'), "asia-southeast1", receipt)
-    # bot.send_message(message.chat.id, "Thank you for waiting! Here is the expense information")
-    if expense_info is not None:
-        bot.reply_to(message, f"{expense_info}")
-        # Parse the JSON string
-        expense_data_json = json.loads(expense_info)
-        bot.send_message(message.chat.id, f"Lemme add this to the spreadsheet: {destination_file_name}")
-        # Download, modify, and upload the file
-        local_path = download_file_from_gcs(message.chat.id, destination_file_name)
-        # Call function to modify the spreadsheet
-        bot.send_message(message.chat.id, f"Adding expense data to {destination_file_name}...")
-        add_expense_to_sheet(local_path, "Income and Expenses", expense_data_json)
-        bot.send_message(message.chat.id, "Expense data added successfully! Uploading the updated spreadsheet...")
-        upload_file_to_gcs(message.chat.id, local_path, destination_file_name)
-
-        # Send file to the user
-        try:
-            with open(local_path, 'rb') as file:
-                bot.send_document(message.chat.id, file, caption="Here's your updated spreadsheet.")
-        except apihelper.ApiException as e:
-            print(f"An error occurred while sending the document: {e}")
-        except FileNotFoundError:
-            print(f"The file at {local_path} was not found.")
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-
-        # Clean up the local file
-        os.remove(local_path)
+    if selected_file is None:
+        bot.send_message(message.chat.id, "Please select a spreadsheet first using /spreadsheet.")
     else:
-        bot.reply_to(message, "Sorry, I was not able to process the image. Please try again.")
+        bot.send_message(message.chat.id, "This will take me 1 minute as I process your receipt. Go grab some coffee in the meantime")
+        file_info = bot.get_file(message.photo[-1].file_id)
+        receipt = load_image_from_url('https://api.telegram.org/file/bot{0}/{1}'.format(BOT_TOKEN, file_info.file_path))
+        expense_info = generate_text(message.chat.id, os.environ.get('GCP_PROJECT_ID'), "asia-southeast1", receipt)
+        # bot.send_message(message.chat.id, "Thank you for waiting! Here is the expense information")
+        if expense_info is not None:
+            bot.reply_to(message, f"{expense_info}")
+            # Parse the JSON string
+            expense_data_json = json.loads(expense_info)
+            bot.send_message(message.chat.id, f"Lemme add this to the spreadsheet: {selected_file}")
+            # Download, modify, and upload the file
+            local_path = download_file_from_gcs(message.chat.id, selected_file)
+            # Call function to modify the spreadsheet
+            bot.send_message(message.chat.id, f"Adding expense data to {selected_file}...")
+            add_expense_to_sheet(local_path, "Income and Expenses", expense_data_json)
+            bot.send_message(message.chat.id, "Expense data added successfully! Uploading the updated spreadsheet...")
+            upload_file_to_gcs(message.chat.id, local_path, selected_file)
+
+            # Send file to the user
+            try:
+                with open(local_path, 'rb') as file:
+                    bot.send_document(message.chat.id, file, caption="Here's your updated spreadsheet.")
+            except apihelper.ApiException as e:
+                print(f"An error occurred while sending the document: {e}")
+            except FileNotFoundError:
+                print(f"The file at {local_path} was not found.")
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+
+            # Clean up the local file
+            os.remove(local_path)
+        else:
+            bot.reply_to(message, "Sorry, I was not able to process the image. Please try again.")
   
 
 def download_file_from_gcs(chat_id, blob_name):
